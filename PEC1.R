@@ -1,5 +1,5 @@
-## ----setup, include=FALSE--------------------------------------------------------------------------
-required_packages <- c("BiocManager", "knitr", "kableExtra", "SummarizedExperiment", 
+## ----setup, include=FALSE-------------------------------------------------------------------------------------------------------
+required_packages <- c("BiocManager", "knitr", "kableExtra", "SummarizedExperiment", "metabolomicsWorkbenchR",
                        "readxl", "ggplot2", "ggraph", "plotly", "patchwork", "rvest")
 
 if (!requireNamespace("BiocManager", quietly = TRUE)) {
@@ -8,7 +8,7 @@ if (!requireNamespace("BiocManager", quietly = TRUE)) {
 
 for (package in required_packages) {
   if (!requireNamespace(package, quietly = TRUE)) {
-    if (package == "SummarizedExperiment") {
+    if (package == "SummarizedExperiment" | package == "metabolomicsWorkbenchR") {
       BiocManager::install(package)
     } else {
       install.packages(package)
@@ -19,12 +19,11 @@ for (package in required_packages) {
 lapply(required_packages, library, character.only = TRUE)
 
 
-## ----actualizacion R, include=FALSE----------------------------------------------------------------
+## ----actualizacion R, include=FALSE---------------------------------------------------------------------------------------------
 # knitr::purl("PEC1.Rmd", output = "PEC1.R")
 
 
-
-## ----carga DataCatalog.xlsx, cache=TRUE------------------------------------------------------------
+## ----carga DataCatalog.xlsx, cache=TRUE-----------------------------------------------------------------------------------------
 # URL del archivo Data_Catalog.xlsx en GitHub
 github.url <- "https://github.com/nutrimetabolomics/metaboData/raw/refs/heads/main"
 file <- "Data_Catalog.xlsx"
@@ -42,7 +41,7 @@ data <- read_excel("Data_Catalog.xlsx", sheet = 1)
 kable(data[,1:ncol(data)-1]) # sin mostrar la descripción, última columna
 
 
-## ----seleccion aleatoria del dataset, cache=TRUE---------------------------------------------------
+## ----seleccion aleatoria del dataset, cache=TRUE--------------------------------------------------------------------------------
 set.seed (123) # semilla aleatoria
 selection<- sample(1:nrow(data),1)
 
@@ -52,7 +51,7 @@ kable(data[selection, 1:ncol(data)-1])
 cat(data[selection, ncol(data)]$Description)
 
 
-## ----lectura de description.md, warning=FALSE, echo=FALSE------------------------------------------
+## ----lectura de description.md, warning=FALSE, echo=FALSE-----------------------------------------------------------------------
 dataset.folder.url <- file.path(github.url, "Datasets", data[selection,]$Dataset)
 file <- "description.md"
 
@@ -63,7 +62,7 @@ description.md <- readLines(description.url)
 cat(description.md, sep = "\n")
 
 
-## ----descarga del archivo dataset del repositorio de Github, cache=TRUE----------------------------
+## ----descarga del archivo dataset del repositorio de Github, cache=TRUE---------------------------------------------------------
 file <- "GastricCancer_NMR.xlsx"
 
 # URL completa usando file.path()
@@ -73,7 +72,7 @@ dataset.url <- file.path(dataset.folder.url, file)
 download.file(dataset.url, destfile = "GastricCancer_NMR.xlsx", mode = "wb")
 
 
-## ----estructura del archivo dataset en Excel, echo=FALSE-------------------------------------------
+## ----estructura del archivo dataset en Excel, echo=FALSE------------------------------------------------------------------------
 # vemos el número de hojas con la función excel_sheets()
 hojas <- excel_sheets(file)
 
@@ -83,7 +82,7 @@ cat("Número de hojas:", length(hojas), "\n")
 cat("Nombres de las hojas:", hojas)
 
 
-## ----columnas de las hojas del dataset en Excel, echo=FALSE----------------------------------------
+## ----columnas de las hojas del dataset en Excel, echo=FALSE---------------------------------------------------------------------
 # leemos los datos de la primera hoja
 data <- read_excel(file, sheet = 1)
 cat("Hoja de Data:", colnames(data), "\n")
@@ -94,7 +93,7 @@ peak <- read_excel(file, sheet = 2)
 cat("Hoja de Peak:", colnames(peak))
 
 
-## ----preparación del objeto SummarizedExperiment---------------------------------------------------
+## ----preparación del objeto SummarizedExperiment--------------------------------------------------------------------------------
 # extraemos los metadatos de las muestras (SampleID, SampleType, Class)
 sample_metadata <- data[, 2:4]
 # extraemos los datos de concentración de metabolitos (columnas M1 a M149) como matriz
@@ -131,7 +130,7 @@ colnames(colData)[colnames(colData) == "SampleID"] <- "Sample name"
 colData <- colData[c("Class", "SampleType", "Sample name")]
 
 
-## ----metadatos del experimento, echo=FALSE---------------------------------------------------------
+## ----metadatos del experimento, echo=FALSE--------------------------------------------------------------------------------------
 # metadatos del experimento
 experiment_metadata <- list(
   `Experiment data` = list(
@@ -152,7 +151,7 @@ Conclusions: GC patients have a distinct urinary metabolite profile. This study 
 )
 
 
-## ----web scraping, cache=TRUE, echo=FALSE----------------------------------------------------------
+## ----web scraping, cache=TRUE, echo=FALSE---------------------------------------------------------------------------------------
 # URL de la página con la tabla datatable de datos de muestra
 url <- "https://www.metabolomicsworkbench.org/data/subject_fetch.php?STUDY_ID=ST001047"
 
@@ -176,7 +175,7 @@ colnames(concentration) <- paste0(colnames(concentration),
                                   "_B", colData$Batch) # muestra + cat clínica + batch
 
 
-## ----construcción del objeto SummarizedExperiment y guardado del binario Rda-----------------------
+## ----construcción del objeto SummarizedExperiment y guardado del binario Rda----------------------------------------------------
 # creamos el objeto SummarizedExperiment
 se <- SummarizedExperiment(
   assays = list(concentration = concentration),
@@ -209,11 +208,72 @@ contenido_md <- c(
 writeLines(contenido_md, "resumen_metadatos.md")
 
 
-## ----datos de concentraciones, echo=FALSE----------------------------------------------------------
+## ----descarga con metabolomicsWorkbenchR----------------------------------------------------------------------------------------
+# opciones disponibles para un contexto de estudio concreto
+# metabolomicsWorkbenchR::context_outputs(context = 'study')
+
+mwb.summ <- do_query(context = 'study', input_item = 'study_id', 
+                     input_value = 'ST001047', output_item = 'summary') # resumen
+mwb.data <- do_query(context = 'study', input_item = 'study_id', 
+                     input_value = 'ST001047', output_item = 'data') # datos
+mwb.factors <- do_query(context = 'study', input_item = 'study_id', 
+                     input_value = 'ST001047', output_item = 'factors') # colData
+mwb.metabolites <- do_query(context = 'study', input_item = 'study_id', 
+                     input_value = 'ST001047', output_item = 'metabolites') # colData
+
+
+
+# no funciona la extracción directa del objeto SummarizedExperiment
+# (Error en SummarizedExperiment(assays = list(X), rowData = VM, colData = SM, : 
+#  the rownames and colnames of the supplied assay(s) must be NULL or identical to 
+# those of the SummarizedExperiment object (or derivative) to construct)
+
+# mwb.se <- do_query(context = 'study', input_item = 'study_id', 
+#                   input_value = 'ST001047', output_item = 'SummarizedExperiment')
+
+columns_to_select <- names(mwb.data$AN001711)[c(8:ncol(mwb.data$AN001711))]
+assay.data <- as.data.frame(subset(mwb.data$AN001711, select = columns_to_select))
+rownames(assay.data) <- mwb.data$AN001711$metabolite_name
+
+# mwb.factors no dispone de las muestras QC. Este desacoplamiento produce el problema en 
+# la descarga directa del SummarizedExperiment con do_query()
+qc.factors <- data.frame(
+  "study_id" = rep("ST001047", 17),
+  "local_sample_id" = c("sample_1", "sample_10", "sample_100", "sample_109", "sample_118", "sample_127", "sample_136",
+                       "sample_140","sample_19", "sample_28", "sample_37", "sample_46", "sample_55", "sample_64", "sample_73",
+                       "sample_82", "sample_91"),
+  
+  "sample_source" = rep("Urine", 17),
+  "mb_sample_id" = c("SA070439", "SA070447", "SA070437", "SA070445", "SA070435", "SA070443", "SA070446", "SA070448", "SA070436",
+"SA070434", "SA070432", "SA070433", "SA070444", "SA070442", "SA070440", "SA070441", "SA070438"),
+  "raw_data" = rep("", 17),
+  "subject_type" = rep(NA, 17),
+  "Sample_Type" = rep("QC", 17)
+  )
+
+# unimos en un único data.frame los datos
+factors <- rbind(qc.factors, mwb.factors$ST001047)
+
+
+# creamos el objeto SummarizedExperiment
+se2 <- SummarizedExperiment(
+  assays = list(concentration = assay.data),
+  rowData = mwb.metabolites,
+  colData = factors,
+  metadata = mwb.summ
+)
+
+se2
+
+# guardamos el objeto en un archivo binario Rda
+save(se, file = "SummarizedExperiment_from_MWB.Rda")
+
+
+## ----datos de concentraciones, echo=FALSE---------------------------------------------------------------------------------------
 concentration.data <- assay(se)
 
 
-## ----estadísticos resumen datos sin normalizar-----------------------------------------------------
+## ----estadísticos resumen datos sin normalizar----------------------------------------------------------------------------------
 summary.concentration.data <- data.frame(
   Mean = apply(concentration.data, 1, mean, na.rm=TRUE), # media
   Median = apply(concentration.data, 1, median, na.rm=TRUE), # mediana
@@ -231,7 +291,7 @@ summary.concentration.data <- data.frame(
 head(summary.concentration.data, 10) # sólo mostramos las 10 primeras filas
 
 
-## ----creación de boxplots de metabolitos, warning=FALSE, echo=FALSE--------------------------------
+## ----creación de boxplots de metabolitos, warning=FALSE, echo=FALSE-------------------------------------------------------------
 crear_boxplot_metabolitos_pdf <- function(se_object, output_file = "metabolitos_boxplots.pdf") {
   # extraer datos de concentración y metadatos
   assay_data <- assay(se_object)
@@ -267,7 +327,7 @@ crear_boxplot_metabolitos_pdf <- function(se_object, output_file = "metabolitos_
 crear_boxplot_metabolitos_pdf(se)
 
 
-## ----creación de histogramas de metabolitos, echo=FALSE, warning=FALSE-----------------------------
+## ----creación de histogramas de metabolitos, echo=FALSE, warning=FALSE----------------------------------------------------------
 crear_histograma_metabolitos_pdf <- function(data, output_file = "metabolitos_histograms.pdf") {
 
   pdf(output_file)
@@ -288,7 +348,7 @@ crear_histograma_metabolitos_pdf <- function(data, output_file = "metabolitos_hi
 crear_histograma_metabolitos_pdf(t(assay(se)))
 
 
-## ----M138 boxplot, warning=FALSE, echo=FALSE-------------------------------------------------------
+## ----M138 boxplot, warning=FALSE, echo=FALSE, fig.height=3.5--------------------------------------------------------------------
 sample_metadata <- colData(se)
 metabolito.name <- rowData[rowData$Name=="M138",]$Label
 boxplot(concentration.data["M138", ] ~ sample_metadata$Class, 
@@ -297,7 +357,7 @@ boxplot(concentration.data["M138", ] ~ sample_metadata$Class,
         main = paste("Distribución de", metabolito.name, "por grupo"))
 
 
-## ----M8 boxplot, warning=FALSE, echo=FALSE---------------------------------------------------------
+## ----M8 boxplot, warning=FALSE, echo=FALSE, fig.height=3.5----------------------------------------------------------------------
 sample_metadata <- colData(se)
 metabolito.name <- rowData[rowData$Name=="M8",]$Label
 boxplot(concentration.data["M8", ] ~ sample_metadata$Class, 
@@ -306,7 +366,7 @@ boxplot(concentration.data["M8", ] ~ sample_metadata$Class,
         main = paste("Distribución de", metabolito.name, "por grupo"))
 
 
-## ----filtrado de datos-----------------------------------------------------------------------------
+## ----filtrado de datos----------------------------------------------------------------------------------------------------------
 library("POMA")
 
 # recogemos los rowData de los metabolitos
@@ -326,7 +386,7 @@ cat("Número de metabolitos originales:", nrow(se), "\n")
 cat("Número de metabolitos filtrados:", nrow(imputed), "\n")
 
 
-## ----función para obtener el label-----------------------------------------------------------------
+## ----función para obtener el label----------------------------------------------------------------------------------------------
 # función para obtener el label de un metabolito específico
 obtener_label_metabolito <- function(metabolito, se) {
   # extraemos la fila donde se encuentra el nombre del metabolito en el objeto original
@@ -337,16 +397,16 @@ obtener_label_metabolito <- function(metabolito, se) {
 }
 
 
-## ----normalizado de datos--------------------------------------------------------------------------
+## ----normalizado de datos-------------------------------------------------------------------------------------------------------
 normalized <- PomaNorm(imputed, method = "log_scaling")
 normalized
 
 
-## ----outliers--------------------------------------------------------------------------------------
+## ----outliers, fig.height=3.5---------------------------------------------------------------------------------------------------
 PomaOutliers(normalized)
 
 
-## ----PomaBoxplots, echo=FALSE----------------------------------------------------------------------
+## ----PomaBoxplots, echo=FALSE, fig.height=8-------------------------------------------------------------------------------------
 a <- PomaBoxplots(imputed, 
                   x = "samples") +
   ggplot2::ggtitle("Sin normalizar - Muestras")+
@@ -366,11 +426,11 @@ d <- PomaBoxplots(normalized,
   ggplot2::ggtitle("Normalizados - Metabolitos")+
   ggplot2::theme(axis.text.x = ggplot2::element_blank())
 
-a|b
-c|d
+# mostramos los gráficos
+(a + b) / (c + d) + plot_layout(heights = c(1, 1))
 
 
-## ----PomaDensity, echo=FALSE-----------------------------------------------------------------------
+## ----PomaDensity, echo=FALSE, fig.height=6--------------------------------------------------------------------------------------
 a <- PomaDensity(imputed, 
                   x = "features",
                  theme_params = list(legend_title = FALSE, legend_position = "none")) +
@@ -389,26 +449,26 @@ d <- PomaDensity(normalized,
                   x = "samples") +
   ggplot2::ggtitle("Normalizados - Muestras")
 
-a+b
-c+d
+# mostramos los gráficos
+(a + b) / (c + d) + plot_layout(heights = c(1, 1))
 
 
-## ----metabolito con valores atípicos, echo=FALSE---------------------------------------------------
+## ----metabolito con valores atípicos, echo=FALSE--------------------------------------------------------------------------------
 max_index <- which(assay(normalized) == max(assay(normalized)), arr.ind = TRUE)
 metabolito.max.name <- rownames(max_index)
 
 
-## ----eliminación de QC, echo=FALSE-----------------------------------------------------------------
+## ----eliminación de QC, echo=FALSE----------------------------------------------------------------------------------------------
 # filtramos las muestras que no son QC
 normalized <- normalized[, colData(normalized)$SampleType != "QC"]
 
 
-## ----PomaUnivariate--------------------------------------------------------------------------------
+## ----PomaUnivariate-------------------------------------------------------------------------------------------------------------
 PomaUnivariate(normalized[, normalized$Class %in% c("GC", "HE")], method = "ttest", 
                var_equal = FALSE, adjust = "fdr") # test t de Welch
 
 
-## ----PomaVolcano-----------------------------------------------------------------------------------
+## ----PomaVolcano, fig.height=3--------------------------------------------------------------------------------------------------
 PomaUnivariate(normalized[, normalized$Class %in% c("GC", "HE")],
                method = "ttest", var_equal = FALSE, adjust = "fdr") %>%
   magrittr::extract2("result") %>% 
@@ -416,12 +476,12 @@ PomaUnivariate(normalized[, normalized$Class %in% c("GC", "HE")],
   PomaVolcano(labels=TRUE)
 
 
-## ----PomaPCA---------------------------------------------------------------------------------------
+## ----PomaPCA--------------------------------------------------------------------------------------------------------------------
 pca <- PomaPCA(normalized, ellipse = TRUE, labels=TRUE, load_length = 1.1)
 pca$biplot
 
 
-## ----cargas PCA, echo=FALSE------------------------------------------------------------------------
+## ----cargas PCA, echo=FALSE-----------------------------------------------------------------------------------------------------
 pc2_values <- pca$loadings$PC2
 
 # índices de los 5 valores más grandes en valor absoluto
@@ -440,7 +500,7 @@ top_loads <- data.frame(
 
 
 
-## ----cluster jerárquico de muestras, fig.asp=0.85, fig.align="center"------------------------------
+## ----cluster jerárquico de muestras, fig.asp=0.85, fig.align="center"-----------------------------------------------------------
 dist.matrix <- dist(t(assay(normalized)))
 hc_res <- hclust(dist.matrix, method = "ward.D2")
 sub_grp <- cutree(hc_res, k=3)
@@ -449,7 +509,7 @@ plot(hc_res, hang = -1, cex = 0.45)
 rect.hclust(hc_res, k=3, border=2:(3+1))
 
 
-## ----mostrar_codigo, echo=FALSE--------------------------------------------------------------------
+## ----mostrar_codigo, echo=FALSE-------------------------------------------------------------------------------------------------
 # leemos el archivo generado con purl()
 codigo <- readLines("PEC1.R")
 # mostramos el código 

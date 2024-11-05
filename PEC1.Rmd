@@ -12,7 +12,7 @@ nocite: '@*'
 ---
 
 ```{r setup, include=FALSE}
-required_packages <- c("BiocManager", "knitr", "kableExtra", "SummarizedExperiment", 
+required_packages <- c("BiocManager", "knitr", "kableExtra", "SummarizedExperiment", "metabolomicsWorkbenchR",
                        "readxl", "ggplot2", "ggraph", "plotly", "patchwork", "rvest")
 
 if (!requireNamespace("BiocManager", quietly = TRUE)) {
@@ -21,7 +21,7 @@ if (!requireNamespace("BiocManager", quietly = TRUE)) {
 
 for (package in required_packages) {
   if (!requireNamespace(package, quietly = TRUE)) {
-    if (package == "SummarizedExperiment") {
+    if (package == "SummarizedExperiment" | package == "metabolomicsWorkbenchR") {
       BiocManager::install(package)
     } else {
       install.packages(package)
@@ -340,6 +340,70 @@ writeLines(contenido_md, "resumen_metadatos.md")
 ```
 
 
+Hasta aquí el proceso de recogida de datos, de una forma manual, aprovechando que disponíamos de la información en el repositorio de *GitHub*. No obstante, el repositorio de *Metabolomics Workbench* posee una API REST que puede ser manejada fácilmente con el paquete `metabolomicsWorkbenchR` de `Bioconductor`. Tan solo hay que utilizar la función `do_query` con los argumentos apropiados para extraer la información que nos interese:
+
+```{r descarga con metabolomicsWorkbenchR}
+# opciones disponibles para un contexto de estudio concreto
+# metabolomicsWorkbenchR::context_outputs(context = 'study')
+
+mwb.summ <- do_query(context = 'study', input_item = 'study_id', 
+                     input_value = 'ST001047', output_item = 'summary') # resumen
+mwb.data <- do_query(context = 'study', input_item = 'study_id', 
+                     input_value = 'ST001047', output_item = 'data') # datos
+mwb.factors <- do_query(context = 'study', input_item = 'study_id', 
+                     input_value = 'ST001047', output_item = 'factors') # colData
+mwb.metabolites <- do_query(context = 'study', input_item = 'study_id', 
+                     input_value = 'ST001047', output_item = 'metabolites') # colData
+
+
+
+# no funciona la extracción directa del objeto SummarizedExperiment
+# (Error en SummarizedExperiment(assays = list(X), rowData = VM, colData = SM, : 
+#  the rownames and colnames of the supplied assay(s) must be NULL or identical to 
+# those of the SummarizedExperiment object (or derivative) to construct)
+
+# mwb.se <- do_query(context = 'study', input_item = 'study_id', 
+#                   input_value = 'ST001047', output_item = 'SummarizedExperiment')
+
+columns_to_select <- names(mwb.data$AN001711)[c(8:ncol(mwb.data$AN001711))]
+assay.data <- as.data.frame(subset(mwb.data$AN001711, select = columns_to_select))
+rownames(assay.data) <- mwb.data$AN001711$metabolite_name
+
+# mwb.factors no dispone de las muestras QC. Este desacoplamiento produce el problema en 
+# la descarga directa del SummarizedExperiment con do_query()
+qc.factors <- data.frame(
+  "study_id" = rep("ST001047", 17),
+  "local_sample_id" = c("sample_1", "sample_10", "sample_100", "sample_109", "sample_118", "sample_127", "sample_136",
+                       "sample_140","sample_19", "sample_28", "sample_37", "sample_46", "sample_55", "sample_64", "sample_73",
+                       "sample_82", "sample_91"),
+  
+  "sample_source" = rep("Urine", 17),
+  "mb_sample_id" = c("SA070439", "SA070447", "SA070437", "SA070445", "SA070435", "SA070443", "SA070446", "SA070448", "SA070436",
+"SA070434", "SA070432", "SA070433", "SA070444", "SA070442", "SA070440", "SA070441", "SA070438"),
+  "raw_data" = rep("", 17),
+  "subject_type" = rep(NA, 17),
+  "Sample_Type" = rep("QC", 17)
+  )
+
+# unimos en un único data.frame los datos
+factors <- rbind(qc.factors, mwb.factors$ST001047)
+
+
+# creamos el objeto SummarizedExperiment
+se2 <- SummarizedExperiment(
+  assays = list(concentration = assay.data),
+  rowData = mwb.metabolites,
+  colData = factors,
+  metadata = mwb.summ
+)
+
+se2
+
+# guardamos el objeto en un archivo binario Rda
+save(se, file = "SummarizedExperiment_from_MWB.Rda")
+```
+
+
 ### 3. Exploración de los datos
 
 El flujo de trabajo que vamos a seguir para la exploración de los datos es el siguiente:
@@ -464,7 +528,7 @@ crear_histograma_metabolitos_pdf(t(assay(se)))
 
 Las distribuciones son sesgadas en su mayoría, tal y como habíamos visto anteriormente. La inspección visual de los resultados nos muestra posibles diferencias entre los grupos clínicos para ciertos metabolitos y valores atípicos. Así pues, encontramos tanto metabolitos más concentrados en el grupo GC en comparación con el grupo HE:
 
-```{r M138 boxplot, warning=FALSE, echo=FALSE}
+```{r M138 boxplot, warning=FALSE, echo=FALSE, fig.height=3.5}
 sample_metadata <- colData(se)
 metabolito.name <- rowData[rowData$Name=="M138",]$Label
 boxplot(concentration.data["M138", ] ~ sample_metadata$Class, 
@@ -473,10 +537,9 @@ boxplot(concentration.data["M138", ] ~ sample_metadata$Class,
         main = paste("Distribución de", metabolito.name, "por grupo"))
 ```
 
-
 Como menos concentrados:
 
-```{r M8 boxplot, warning=FALSE, echo=FALSE}
+```{r M8 boxplot, warning=FALSE, echo=FALSE, fig.height=3.5}
 sample_metadata <- colData(se)
 metabolito.name <- rowData[rowData$Name=="M8",]$Label
 boxplot(concentration.data["M8", ] ~ sample_metadata$Class, 
@@ -540,7 +603,7 @@ normalized
 
 Comprobamos la existencia de posibles valores atípicos *outliers*:
 
-```{r outliers}
+```{r outliers, fig.height=3.5}
 PomaOutliers(normalized)
 ```
 
@@ -548,7 +611,7 @@ Aunque parece que sigue existiendo cierto sesgo en las distribuciones por catego
 
 Podemos ver el resultado de nuestra transformación de los datos, tanto para muestras como metabolitos, con `PomaBoxplots`:
 
-```{r PomaBoxplots, echo=FALSE}
+```{r PomaBoxplots, echo=FALSE, fig.height=8}
 a <- PomaBoxplots(imputed, 
                   x = "samples") +
   ggplot2::ggtitle("Sin normalizar - Muestras")+
@@ -568,13 +631,13 @@ d <- PomaBoxplots(normalized,
   ggplot2::ggtitle("Normalizados - Metabolitos")+
   ggplot2::theme(axis.text.x = ggplot2::element_blank())
 
-a|b
-c|d
+# mostramos los gráficos
+(a + b) / (c + d) + plot_layout(heights = c(1, 1))
 ```
 
 Por otro lado, con `PomaDensity` podemos obtener gráficos de densidad antes y después del proceso de normalización, tanto para metabolitos como muestras.
 
-```{r PomaDensity, echo=FALSE}
+```{r PomaDensity, echo=FALSE, fig.height=6}
 a <- PomaDensity(imputed, 
                   x = "features",
                  theme_params = list(legend_title = FALSE, legend_position = "none")) +
@@ -593,8 +656,8 @@ d <- PomaDensity(normalized,
                   x = "samples") +
   ggplot2::ggtitle("Normalizados - Muestras")
 
-a+b
-c+d
+# mostramos los gráficos
+(a + b) / (c + d) + plot_layout(heights = c(1, 1))
 ```
 
 ```{r metabolito con valores atípicos, echo=FALSE}
@@ -629,7 +692,7 @@ Se observan diferencias significativas con respecto a distintos metabolitos entr
 
 Para ello, realizaremos un *volcano plot*, el cual representa el *fold-change* frente al logaritmo negativo de los p-valores para hallar los metabolitos que podrían estar contribuyendo a la separación observada entre "GC" y "HE" y que merecerían una mayor atención en estudios futuros para su validación como posibles biomarcadores:
 
-```{r PomaVolcano}
+```{r PomaVolcano, fig.height=3}
 PomaUnivariate(normalized[, normalized$Class %in% c("GC", "HE")],
                method = "ttest", var_equal = FALSE, adjust = "fdr") %>%
   magrittr::extract2("result") %>% 
