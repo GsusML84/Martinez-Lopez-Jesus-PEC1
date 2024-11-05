@@ -15,6 +15,7 @@ Los datos procesados y anotados fueron depositados en el repositorio *Metabolomi
 - PEC1.Rmd: archivo markdown de R.
 - PEC1.R: código R del archivo PEC1.Rmd.
 - SummarizedExperiment.Rda: objeto contenedor con los datos y los metadatos en formato binario.
+- SummarizedExperiment_from_MWB.Rda: objeto contenedor con los datos y metadatos descargados con `metabolomicsWorkbenchR`
 - GastricCancer_NMR.xlsx: datos del dataset en formato Excel.
 - data_assay_matrix.csv: sólo datos del dataset en formato texto delimitado por comas (CSV).
 - sample_metadata.csv: metadatos de muestras del dataset en formato texto delimitado por comas (CSV).
